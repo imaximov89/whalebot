@@ -55,45 +55,73 @@ def parse_signal_message(message_text: str) -> Optional[Dict[str, object]]:
     if not text:
         return None
 
-    symbol_match = re.search(r"(?im)^(?P<symbol>[A-Z][A-Z0-9]{1,10})\b", text)
-    if not symbol_match:
-        symbol_match = re.search(r"(?i)\b(?P<symbol>[A-Z][A-Z0-9]{1,10})\b", text)
-    if not symbol_match:
-        logger.warning("Could not find symbol in message: %s", message_text)
-        return None
-
-    symbol = symbol_match.group("symbol").upper()
+    pair_match = re.search(r"(?i)\b(?P<base>[A-Z][A-Z0-9]{1,10})\s*(?:/|-)\s*(?P<quote>[A-Z][A-Z0-9]{1,10})\b", text)
+    if pair_match:
+        symbol = build_symbol(f"{pair_match.group('base')}/{pair_match.group('quote')}")
+    else:
+        symbol_match = re.search(r"(?im)(?:^|[^A-Z0-9])(?P<symbol>[A-Z][A-Z0-9]{1,10})\b", text)
+        if not symbol_match:
+            symbol_match = re.search(r"(?i)\b(?P<symbol>[A-Z][A-Z0-9]{1,10})\b", text)
+        if not symbol_match:
+            logger.warning("Could not find symbol in message: %s", message_text)
+            return None
+        symbol = build_symbol(symbol_match.group("symbol").upper())
     entry = None
     take1 = None
     take2 = None
     stop = None
 
     patterns = {
-        "entry": r"(?iu)(?:Вход|Entry|Entry Price)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
-        "take1": r"(?iu)(?:Тейк\s*1|Take\s*1|Take1|TP1|Target\s*1)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
-        "take2": r"(?iu)(?:Тейк\s*2|Take\s*2|Take2|TP2|Target\s*2)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
-        "stop": r"(?iu)(?:Стоп|Stop|SL)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
+        "entry": r"(?iu)(?:Вход|Entry(?:\s*Price)?|Цена\s*входа)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
+        "take1": r"(?iu)(?:Тейк\s*(?:1|profit)?|Take\s*(?:1|profit)?|Take1|TP\s*(?:1|profit)?|Target(?:\s*Profit)?(?:\s*1)?|T1)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
+        "take2": r"(?iu)(?:Тейк\s*2|Take\s*2|Take2|Take\s*Profit\s*2|TP\s*2|Target\s*2|T2)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
+        "stop": r"(?iu)(?:Стоп(?:\s*Лосс)?|Stop(?:\s*Loss)?|SL)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)",
     }
 
+    take1_match = re.search(r"(?iu)(?:Тейк\s*(?:1|profit)|Take(?:\s*Profit)?(?:\s*1)?|Take1|TP(?:\s*1|\s*Profit)?|Target(?:\s*Profit)?(?:\s*1)?|T1)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if take1_match:
+        take1 = numeric(take1_match.group(1))
+
+    take2_match = re.search(r"(?iu)(?:Тейк\s*2|Take(?:\s*Profit)?\s*2|Take2|TP\s*2|Target\s*2|T2)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if take2_match:
+        take2 = numeric(take2_match.group(1))
+
+    if take1 is None:
+        take1_fallback = re.search(r"(?iu)(?:Тейк\s*(?:1|profit)|Take(?:\s*Profit)?(?:\s*1)?|Take1|TP(?:\s*1|\s*Profit)?|Target(?:\s*Profit)?(?:\s*1)?|T1)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*[·•\-–—]\s*(?:Тейк\s*2|Take(?:\s*Profit)?\s*2|Take2|TP\s*2|Target\s*2|T2)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)", text)
+        if take1_fallback:
+            take1 = numeric(take1_fallback.group(1))
+            take2 = numeric(take1_fallback.group(2))
+
     for name, pattern in patterns.items():
+        if name in {"take1", "take2"}:
+            continue
         match = re.search(pattern, text)
         if match:
             value = match.group(1)
             try:
                 if name == "entry":
                     entry = numeric(value)
-                elif name == "take1":
-                    take1 = numeric(value)
-                elif name == "take2":
-                    take2 = numeric(value)
                 elif name == "stop":
                     stop = numeric(value)
             except InvalidOperation:
                 logger.warning("Could not parse numeric from %s in message: %s", name, message_text)
 
-    if entry is None or take1 is None or take2 is None:
+    if entry is None:
+        entry_match = re.search(r"(?iu)(?:Вход|Entry(?:\s*Price)?|Цена\s*входа)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)", text)
+        if entry_match:
+            entry = numeric(entry_match.group(1))
+
+    if stop is None:
+        stop_match = re.search(r"(?iu)(?:Стоп(?:\s*Лосс)?|Stop(?:\s*Loss)?|SL)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)", text)
+        if stop_match:
+            stop = numeric(stop_match.group(1))
+
+    if entry is None or take1 is None:
         logger.warning("Incomplete signal: %s", message_text)
         return None
+
+    if take2 is None:
+        take2 = take1
 
     side = "BUY" if (take1 > entry and (stop is None or stop < entry)) else "SELL"
     if stop is not None and stop > entry and take1 < entry:
