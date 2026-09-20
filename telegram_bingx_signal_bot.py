@@ -205,7 +205,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "quantity": format(position_size, "f"),
         "reduceOnly": False,
     }
-    open_order = bingx_request("POST", "/openApi/swap/v2/order", api_key, secret_key, open_payload)
+    open_order = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, open_payload)
 
     half_quantity = position_size / Decimal("2")
     close_first = {
@@ -218,7 +218,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "timeInForce": "GTC",
         "reduceOnly": True,
     }
-    close_first_response = bingx_request("POST", "/openApi/swap/v2/order", api_key, secret_key, close_first)
+    close_first_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, close_first)
 
     close_second = {
         "symbol": symbol,
@@ -230,7 +230,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "timeInForce": "GTC",
         "reduceOnly": True,
     }
-    close_second_response = bingx_request("POST", "/openApi/swap/v2/order", api_key, secret_key, close_second)
+    close_second_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, close_second)
 
     stop_loss_order = {
         "symbol": symbol,
@@ -242,7 +242,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "timeInForce": "GTC",
         "reduceOnly": True,
     }
-    stop_loss_response = bingx_request("POST", "/openApi/swap/v2/order", api_key, secret_key, stop_loss_order)
+    stop_loss_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, stop_loss_order)
 
 
 async def handle_new_message(event):
