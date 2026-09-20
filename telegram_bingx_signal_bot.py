@@ -16,9 +16,9 @@ from telethon.sessions import StringSession
 
 load_dotenv()
 
-logging.basicConfig(level=logging.ERROR, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("bingx_signal_bot")
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.DEBUG)
 
 
 def get_env_float(name: str, default: float) -> float:
@@ -198,10 +198,8 @@ def send_trade(signal: Dict[str, object]) -> None:
         "symbol": symbol,
         "side": entry_order_side,
         "positionSide": position_side,
-        "type": "LIMIT",
+        "type": "MARKET",
         "quantity": format(position_size, "f"),
-        "price": format(entry, "f"),
-        "timeInForce": "GTC",
         "reduceOnly": False,
     }
     open_order = bingx_request("POST", "/openApi/swap/v2/order", api_key, secret_key, open_payload)
@@ -246,17 +244,31 @@ def send_trade(signal: Dict[str, object]) -> None:
 
 async def handle_new_message(event):
     chat_id = int(os.getenv("TELEGRAM_TARGET_CHAT_ID", "-1003784200144"))
+
     if event.chat_id != chat_id:
+        logger.debug("Ignoring message from chat_id=%s; target chat_id=%s", event.chat_id, chat_id)
         return
+
+    logger.debug("Received Telegram event from configured chat: chat_id=%s sender_id=%s message_id=%s raw_text=%r text=%r",
+                 getattr(event, "chat_id", None),
+                 getattr(event, "sender_id", None),
+                 getattr(event, "id", None),
+                 getattr(event, "raw_text", None),
+                 getattr(event, "text", None))
 
     text = (event.raw_text or event.text or "").strip()
     if not text:
+        logger.debug("Empty message text for chat_id=%s message_id=%s", event.chat_id, getattr(event, "id", None))
         return
+
+    logger.debug("Processing message from target chat_id=%s: %s", event.chat_id, text)
 
     signal = parse_signal_message(text)
     if signal is None:
         logger.warning("Unable to parse signal from chat message: %s", text)
         return
+
+    logger.debug("Parsed signal: %s", signal)
 
     try:
         send_trade(signal)
@@ -281,11 +293,12 @@ async def main() -> None:
         session_file = os.path.join(session_dir, f"{safe_session_name}.session")
         client = TelegramClient(session_file, int(api_id), api_hash)
 
-    @client.on(events.NewMessage())
+    @client.on(events.NewMessage(incoming=True))
     async def handler(event):
         await handle_new_message(event)
 
     await client.start()
+    logger.info("Telegram client started. Listening for incoming messages...")
     await client.run_until_disconnected()
 
 

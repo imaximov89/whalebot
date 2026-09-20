@@ -1,6 +1,9 @@
+import os
 import unittest
+from decimal import Decimal
+from unittest.mock import patch
 
-from telegram_bingx_signal_bot import parse_signal_message
+from telegram_bingx_signal_bot import parse_signal_message, send_trade
 
 
 class ParseSignalMessageTests(unittest.TestCase):
@@ -29,6 +32,33 @@ class ParseSignalMessageTests(unittest.TestCase):
         self.assertEqual(str(signal["entry"]), "0.04411")
         self.assertEqual(str(signal["take1"]), "0.0458744")
         self.assertEqual(str(signal["take2"]), "0.0476388")
+
+    def test_send_trade_uses_market_order_for_entry(self):
+        signal = {
+            "symbol": "BIGTIMEUSDT",
+            "entry": Decimal("0.008094"),
+            "take1": Decimal("0.00841776"),
+            "take2": Decimal("0.00874152"),
+            "stop": Decimal("0.0072846"),
+            "side": "BUY",
+        }
+        captured = []
+
+        def fake_bingx_request(method, path, api_key, secret_key, payload=None):
+            captured.append(payload)
+            return {"code": 0, "msg": "success"}
+
+        with patch.dict(os.environ, {
+            "BINGX_API_KEY": "test-key",
+            "BINGX_SECRET_KEY": "test-secret",
+            "BINGX_POSITION_SIZE": "1",
+            "BINGX_QUOTE_ASSET": "USDT",
+        }, clear=False):
+            with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
+                send_trade(signal)
+
+        self.assertEqual(captured[0]["type"], "MARKET")
+        self.assertNotIn("price", captured[0])
 
 
 if __name__ == "__main__":
