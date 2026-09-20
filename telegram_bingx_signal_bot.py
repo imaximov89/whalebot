@@ -170,8 +170,11 @@ def bingx_request(method: str, path: str, api_key: str, secret_key: str, payload
         parsed = response.json()
     except ValueError:
         raise RuntimeError(f"BingX API returned non-JSON response: {response.text}")
-    if response.status_code >= 400:
+
+    code = parsed.get("code") if isinstance(parsed, dict) else None
+    if response.status_code >= 400 or code not in (0, None):
         raise RuntimeError(f"BingX request failed ({response.status_code}): {parsed}")
+
     return parsed
 
 

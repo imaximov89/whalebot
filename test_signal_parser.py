@@ -3,7 +3,7 @@ import unittest
 from decimal import Decimal
 from unittest.mock import patch
 
-from telegram_bingx_signal_bot import parse_signal_message, send_trade
+from telegram_bingx_signal_bot import bingx_request, parse_signal_message, send_trade
 
 
 class ParseSignalMessageTests(unittest.TestCase):
@@ -59,6 +59,18 @@ class ParseSignalMessageTests(unittest.TestCase):
 
         self.assertEqual(captured[0]["type"], "MARKET")
         self.assertNotIn("price", captured[0])
+
+    def test_bingx_request_rejects_non_zero_api_code_even_on_http_200(self):
+        class DummyResponse:
+            status_code = 200
+            text = '{"code": 40004, "msg": "Balance not enough"}'
+
+            def json(self):
+                return {"code": 40004, "msg": "Balance not enough"}
+
+        with patch("requests.request", return_value=DummyResponse()):
+            with self.assertRaises(RuntimeError):
+                bingx_request("POST", "/openApi/swap/v2/order", "api", "secret", {"symbol": "BTCUSDT"})
 
 
 if __name__ == "__main__":
