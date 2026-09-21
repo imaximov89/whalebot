@@ -145,9 +145,12 @@ def calc_stop_loss_price(entry: Decimal, side: str, stop_loss_percent: float) ->
 
 def create_signed_payload(api_key: str, secret_key: str, payload: Dict[str, object]) -> Dict[str, str]:
     timestamp = str(int(time.time() * 1000))
-    payload_with_ts = {**payload, "timestamp": timestamp, "recvWindow": payload.get("recvWindow", 60000)}
-    payload_json = json.dumps(payload_with_ts, separators=(",", ":"), ensure_ascii=False)
-    signature = hmac.new(secret_key.encode("utf-8"), payload_json.encode("utf-8"), hashlib.sha256).hexdigest()
+    recv_window = int(payload.get("recvWindow", 60000))
+    payload_without_ts = {key: value for key, value in payload.items() if key not in {"timestamp", "recvWindow"}}
+    payload_with_ts = {**payload_without_ts, "timestamp": timestamp, "recvWindow": recv_window}
+    payload_json = json.dumps(payload_with_ts, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    signing_string = f"{timestamp}{recv_window}{payload_json}"
+    signature = hmac.new(secret_key.encode("utf-8"), signing_string.encode("utf-8"), hashlib.sha256).hexdigest()
     return {
         "X-BX-APIKEY": api_key,
         "X-BX-SIGNATURE": signature,

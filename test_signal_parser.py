@@ -1,9 +1,12 @@
+import hashlib
+import hmac
+import json
 import os
 import unittest
 from decimal import Decimal
 from unittest.mock import patch
 
-from telegram_bingx_signal_bot import bingx_request, parse_signal_message, send_trade
+from telegram_bingx_signal_bot import bingx_request, create_signed_payload, parse_signal_message, send_trade
 
 
 class ParseSignalMessageTests(unittest.TestCase):
@@ -71,6 +74,22 @@ class ParseSignalMessageTests(unittest.TestCase):
         with patch("requests.request", return_value=DummyResponse()):
             with self.assertRaises(RuntimeError):
                 bingx_request("POST", "/openApi/swap/v2/order", "api", "secret", {"symbol": "BTCUSDT"})
+
+    def test_create_signed_payload_uses_timestamp_recvwindow_and_payload_for_signature(self):
+        payload = {"symbol": "BTCUSDT", "side": "BUY", "type": "LIMIT", "quantity": "1", "price": "50000"}
+        with patch("telegram_bingx_signal_bot.time.time", return_value=1700000000.123):
+            signed = create_signed_payload("api-key", "secret-key", payload)
+
+        body = json.loads(signed["payload"])
+        self.assertEqual(body["symbol"], "BTCUSDT")
+        self.assertIn("timestamp", body)
+        self.assertIn("recvWindow", body)
+
+        timestamp = body["timestamp"]
+        recv_window = body["recvWindow"]
+        canonical_body = json.dumps({**payload, "timestamp": timestamp, "recvWindow": recv_window}, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+        expected = hmac.new("secret-key".encode("utf-8"), f"{timestamp}{recv_window}{canonical_body}".encode("utf-8"), hashlib.sha256).hexdigest()
+        self.assertEqual(signed["X-BX-SIGNATURE"], expected)
 
 
 if __name__ == "__main__":
