@@ -44,10 +44,14 @@ def numeric(value: str) -> Decimal:
 
 
 def build_symbol(raw_symbol: str, quote_asset: str = "USDT") -> str:
-    symbol = raw_symbol.strip().upper().replace("/", "").replace("-", "")
+    symbol = raw_symbol.strip().upper().replace("/", " ").replace("-", " ").split()
+    symbol = "".join(symbol)
+    if not symbol:
+        return f"{quote_asset.upper()}"
     if symbol.endswith(quote_asset.upper()):
-        return symbol
-    return f"{symbol}{quote_asset.upper()}"
+        base = symbol[:-len(quote_asset)]
+        return f"{base}-{quote_asset.upper()}"
+    return f"{symbol}-{quote_asset.upper()}"
 
 
 def parse_signal_message(message_text: str) -> Optional[Dict[str, object]]:
