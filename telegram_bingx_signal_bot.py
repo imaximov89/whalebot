@@ -1,11 +1,11 @@
 import asyncio
 import hashlib
 import hmac
-import json
 import logging
 import os
 import re
 import time
+import urllib.parse
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional
 
@@ -144,18 +144,40 @@ def calc_stop_loss_price(entry: Decimal, side: str, stop_loss_percent: float) ->
 
 
 def create_signed_payload(api_key: str, secret_key: str, payload: Dict[str, object]) -> Dict[str, str]:
+    sorted_keys = sorted(payload)
+    params_list = []
+    for key in sorted_keys:
+        value = payload[key]
+        params_list.append(f"{key}={value}")
+
     timestamp = str(int(time.time() * 1000))
-    recv_window = int(payload.get("recvWindow", 60000))
-    payload_without_ts = {key: value for key, value in payload.items() if key not in {"timestamp", "recvWindow"}}
-    payload_with_ts = {**payload_without_ts, "timestamp": timestamp, "recvWindow": recv_window}
-    payload_json = json.dumps(payload_with_ts, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
-    signing_string = f"{timestamp}{recv_window}{payload_json}"
-    signature = hmac.new(secret_key.encode("utf-8"), signing_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    params_str = "&".join(params_list)
+    if params_str != "":
+        params_str = params_str + "&timestamp=" + timestamp
+    else:
+        params_str = "timestamp=" + timestamp
+
+    contains = "[" in params_str or "{" in params_str
+    url_params_list = []
+    for key in sorted_keys:
+        value = payload[key]
+        if contains:
+            encoded_value = urllib.parse.quote(str(value), safe="")
+            url_params_list.append(f"{key}={encoded_value}")
+        else:
+            url_params_list.append(f"{key}={value}")
+
+    url_params_str = "&".join(url_params_list)
+    if url_params_str != "":
+        url_params_str = url_params_str + "&timestamp=" + timestamp
+    else:
+        url_params_str = "timestamp=" + timestamp
+
+    signature = hmac.new(secret_key.encode("utf-8"), params_str.encode("utf-8"), hashlib.sha256).hexdigest()
+    signed_query = url_params_str + "&signature=" + signature
     return {
         "X-BX-APIKEY": api_key,
-        "X-BX-SIGNATURE": signature,
-        "Content-Type": "application/json",
-        "payload": payload_json,
+        "payload": signed_query,
     }
 
 
@@ -163,12 +185,11 @@ def bingx_request(method: str, path: str, api_key: str, secret_key: str, payload
     base_url = os.getenv("BINGX_BASE_URL", "https://open-api.bingx.com")
     url = f"{base_url}{path}"
     request_payload = payload or {}
-    headers = create_signed_payload(api_key, secret_key, request_payload)
-    response = requests.request(method, url, headers={
-        "X-BX-APIKEY": headers["X-BX-APIKEY"],
-        "X-BX-SIGNATURE": headers["X-BX-SIGNATURE"],
-        "Content-Type": headers["Content-Type"],
-    }, data=headers["payload"], timeout=30)
+    signed = create_signed_payload(api_key, secret_key, request_payload)
+    signed_url = f"{url}?{signed['payload']}"
+    response = requests.request(method, signed_url, headers={
+        "X-BX-APIKEY": signed["X-BX-APIKEY"],
+    }, data={}, timeout=30)
     try:
         parsed = response.json()
     except ValueError:

@@ -1,6 +1,5 @@
 import hashlib
 import hmac
-import json
 import os
 import unittest
 from decimal import Decimal
@@ -75,21 +74,47 @@ class ParseSignalMessageTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 bingx_request("POST", "/openApi/swap/v2/order", "api", "secret", {"symbol": "BTCUSDT"})
 
-    def test_create_signed_payload_uses_timestamp_recvwindow_and_payload_for_signature(self):
-        payload = {"symbol": "BTCUSDT", "side": "BUY", "type": "LIMIT", "quantity": "1", "price": "50000"}
+    def test_create_signed_payload_matches_bingx_query_string_contract(self):
+        payload = {
+            "symbol": "BTC-USDT",
+            "side": "BUY",
+            "positionSide": "LONG",
+            "type": "MARKET",
+            "quantity": 5,
+            "takeProfit": '{"type":"TAKE_PROFIT_MARKET","stopPrice":31968.0,"price":31968.0,"workingType":"MARK_PRICE"}'
+        }
         with patch("telegram_bingx_signal_bot.time.time", return_value=1700000000.123):
             signed = create_signed_payload("api-key", "secret-key", payload)
 
-        body = json.loads(signed["payload"])
-        self.assertEqual(body["symbol"], "BTCUSDT")
-        self.assertIn("timestamp", body)
-        self.assertIn("recvWindow", body)
+        self.assertIn("signature=", signed["payload"])
+        self.assertIn("timestamp=1700000000123", signed["payload"])
+        self.assertNotIn("X-BX-SIGNATURE", signed["payload"])
 
-        timestamp = body["timestamp"]
-        recv_window = body["recvWindow"]
-        canonical_body = json.dumps({**payload, "timestamp": timestamp, "recvWindow": recv_window}, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
-        expected = hmac.new("secret-key".encode("utf-8"), f"{timestamp}{recv_window}{canonical_body}".encode("utf-8"), hashlib.sha256).hexdigest()
-        self.assertEqual(signed["X-BX-SIGNATURE"], expected)
+        params_list = [f"{key}={payload[key]}" for key in sorted(payload)]
+        params_str = "&".join(params_list) + "&timestamp=1700000000123"
+        expected = hmac.new("secret-key".encode("utf-8"), params_str.encode("utf-8"), hashlib.sha256).hexdigest()
+        self.assertTrue(signed["payload"].endswith(f"&signature={expected}"))
+        self.assertIn("takeProfit=%7B%22type%22%3A%22TAKE_PROFIT_MARKET%22%2C%22stopPrice%22%3A31968.0%2C%22price%22%3A31968.0%2C%22workingType%22%3A%22MARK_PRICE%22%7D", signed["payload"])
+
+    def test_bingx_request_uses_signed_query_string_not_json_body(self):
+        class DummyResponse:
+            status_code = 200
+            text = '{"code": 0, "msg": "success"}'
+
+            def json(self):
+                return {"code": 0, "msg": "success"}
+
+        with patch("requests.request", return_value=DummyResponse()) as mocked:
+            result = bingx_request("POST", "/openApi/swap/v2/trade/order", "api", "secret", {"symbol": "BTCUSDT", "side": "BUY"})
+
+        self.assertEqual(result["code"], 0)
+        self.assertIn("?", mocked.call_args.args[1])
+        self.assertIn("signature=", mocked.call_args.args[1])
+        self.assertEqual(mocked.call_args.kwargs["headers"], {"X-BX-APIKEY": "api"})
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":
