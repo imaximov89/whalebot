@@ -112,6 +112,33 @@ class ParseSignalMessageTests(unittest.TestCase):
         self.assertIn("signature=", mocked.call_args.args[1])
         self.assertEqual(mocked.call_args.kwargs["headers"], {"X-BX-APIKEY": "api"})
 
+    def test_send_trade_omits_reduce_only_in_hedge_mode(self):
+        signal = {
+            "symbol": "CRO-USDT",
+            "entry": Decimal("0.10"),
+            "take1": Decimal("0.11"),
+            "take2": Decimal("0.12"),
+            "stop": Decimal("0.09"),
+            "side": "BUY",
+        }
+        captured = []
+
+        def fake_bingx_request(method, path, api_key, secret_key, payload=None):
+            captured.append(payload)
+            return {"code": 0, "msg": "success"}
+
+        with patch.dict(os.environ, {
+            "BINGX_API_KEY": "test-key",
+            "BINGX_SECRET_KEY": "test-secret",
+            "BINGX_POSITION_SIZE": "1",
+            "BINGX_QUOTE_ASSET": "USDT",
+        }, clear=False):
+            with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
+                send_trade(signal)
+
+        for order in captured:
+            self.assertNotIn("reduceOnly", order)
+
 
 if __name__ == "__main__":
     unittest.main()

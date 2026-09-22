@@ -231,7 +231,6 @@ def send_trade(signal: Dict[str, object]) -> None:
         "positionSide": position_side,
         "type": "MARKET",
         "quantity": format(position_size, "f"),
-        "reduceOnly": False,
     }
     open_order = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, open_payload)
 
@@ -244,7 +243,6 @@ def send_trade(signal: Dict[str, object]) -> None:
         "quantity": format(half_quantity, "f"),
         "price": format(take1, "f"),
         "timeInForce": "GTC",
-        "reduceOnly": True,
     }
     close_first_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, close_first)
 
@@ -256,7 +254,6 @@ def send_trade(signal: Dict[str, object]) -> None:
         "quantity": format(half_quantity, "f"),
         "price": format(take2, "f"),
         "timeInForce": "GTC",
-        "reduceOnly": True,
     }
     close_second_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, close_second)
 
@@ -268,7 +265,6 @@ def send_trade(signal: Dict[str, object]) -> None:
         "quantity": format(position_size, "f"),
         "stopPrice": format(stop_loss_price, "f"),
         "timeInForce": "GTC",
-        "reduceOnly": True,
     }
     stop_loss_response = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, stop_loss_order)
 
