@@ -141,8 +141,11 @@ class ParseSignalMessageTests(unittest.TestCase):
 
         self.assertEqual(captured[0]["path"], "/openApi/swap/v2/trade/marginType")
         self.assertEqual(captured[0]["payload"]["marginType"], "CROSSED")
+        self.assertEqual(captured[0]["payload"]["recvWindow"], "60000")
+        self.assertNotIn("positionSide", captured[0]["payload"])
         self.assertEqual(captured[1]["path"], "/openApi/swap/v2/position/leverage")
         self.assertEqual(captured[1]["payload"]["leverage"], "125")
+        self.assertEqual(captured[1]["payload"]["recvWindow"], "60000")
 
         market_order = next(order for order in captured if order["payload"].get("type") == "MARKET")
         self.assertEqual(market_order["payload"]["type"], "MARKET")

@@ -238,7 +238,7 @@ def send_trade(signal: Dict[str, object]) -> None:
     margin_setup = {
         "symbol": symbol,
         "marginType": "CROSSED",
-        "positionSide": position_side,
+        "recvWindow": "60000",
     }
     bingx_request("POST", "/openApi/swap/v2/trade/marginType", api_key, secret_key, margin_setup)
 
@@ -246,6 +246,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "symbol": symbol,
         "leverage": max_leverage,
         "positionSide": position_side,
+        "recvWindow": "60000",
     }
     bingx_request("POST", "/openApi/swap/v2/position/leverage", api_key, secret_key, leverage_setup)
 
