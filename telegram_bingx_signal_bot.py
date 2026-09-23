@@ -245,10 +245,10 @@ def send_trade(signal: Dict[str, object]) -> None:
     leverage_setup = {
         "symbol": symbol,
         "leverage": max_leverage,
-        "positionSide": position_side,
+        "side": position_side,
         "recvWindow": "60000",
     }
-    bingx_request("POST", "/openApi/swap/v2/position/leverage", api_key, secret_key, leverage_setup)
+    bingx_request("POST", "/openApi/swap/v2/trade/leverage", api_key, secret_key, leverage_setup)
 
     open_payload = {
         "symbol": symbol,
