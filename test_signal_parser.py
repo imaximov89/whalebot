@@ -139,7 +139,7 @@ class ParseSignalMessageTests(unittest.TestCase):
             with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
                 send_trade(signal)
 
-        self.assertEqual(captured[0]["path"], "/openApi/swap/v2/position/margin_type")
+        self.assertEqual(captured[0]["path"], "/openApi/swap/v2/trade/marginType")
         self.assertEqual(captured[0]["payload"]["marginType"], "CROSSED")
         self.assertEqual(captured[1]["path"], "/openApi/swap/v2/position/leverage")
         self.assertEqual(captured[1]["payload"]["leverage"], "125")
