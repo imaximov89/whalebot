@@ -34,8 +34,18 @@ def get_env_float(name: str, default: float) -> float:
 
 
 def get_stop_loss_percent() -> float:
-    value = get_env_float("STOP_LOSS", 0.02)
-    return value / 100 if value > 1 else value
+    value = os.getenv("STOP_LOSS")
+    if value is not None:
+        parsed = get_env_float("STOP_LOSS", 0.02)
+        return parsed / 100 if parsed > 1 else parsed
+    return 0.02
+
+
+def get_max_leverage() -> str:
+    value = os.getenv("BINGX_MAX_LEVERAGE", "125").strip()
+    if not value:
+        return "125"
+    return value
 
 
 def numeric(value: str) -> Decimal:
@@ -223,7 +233,21 @@ def send_trade(signal: Dict[str, object]) -> None:
     close_order_side = "SELL" if side == "BUY" else "BUY"
     position_side = "LONG" if side == "BUY" else "SHORT"
     stop_loss_price = calc_stop_loss_price(entry, side, stop_loss_percent)
+    max_leverage = get_max_leverage()
 
+    margin_setup = {
+        "symbol": symbol,
+        "marginType": "CROSSED",
+        "positionSide": position_side,
+    }
+    bingx_request("POST", "/openApi/swap/v2/position/margin_type", api_key, secret_key, margin_setup)
+
+    leverage_setup = {
+        "symbol": symbol,
+        "leverage": max_leverage,
+        "positionSide": position_side,
+    }
+    bingx_request("POST", "/openApi/swap/v2/position/leverage", api_key, secret_key, leverage_setup)
 
     open_payload = {
         "symbol": symbol,

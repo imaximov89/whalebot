@@ -59,8 +59,9 @@ class ParseSignalMessageTests(unittest.TestCase):
             with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
                 send_trade(signal)
 
-        self.assertEqual(captured[0]["type"], "MARKET")
-        self.assertNotIn("price", captured[0])
+        market_order = next(order for order in captured if order.get("type") == "MARKET")
+        self.assertEqual(market_order["type"], "MARKET")
+        self.assertNotIn("price", market_order)
 
     def test_bingx_request_rejects_non_zero_api_code_even_on_http_200(self):
         class DummyResponse:
@@ -111,6 +112,43 @@ class ParseSignalMessageTests(unittest.TestCase):
         self.assertIn("?", mocked.call_args.args[1])
         self.assertIn("signature=", mocked.call_args.args[1])
         self.assertEqual(mocked.call_args.kwargs["headers"], {"X-BX-APIKEY": "api"})
+
+    def test_send_trade_configures_cross_margin_and_max_leverage_before_entry(self):
+        signal = {
+            "symbol": "FETUSDT",
+            "entry": Decimal("0.48"),
+            "take1": Decimal("0.50"),
+            "take2": Decimal("0.52"),
+            "stop": Decimal("0.46"),
+            "side": "BUY",
+        }
+        captured = []
+
+        def fake_bingx_request(method, path, api_key, secret_key, payload=None):
+            captured.append({"method": method, "path": path, "payload": payload})
+            return {"code": 0, "msg": "success"}
+
+        with patch.dict(os.environ, {
+            "BINGX_API_KEY": "test-key",
+            "BINGX_SECRET_KEY": "test-secret",
+            "BINGX_POSITION_SIZE": "1",
+            "BINGX_QUOTE_ASSET": "USDT",
+            "BINGX_MAX_LEVERAGE": "125",
+            "STOP_LOSS": "2.5",
+        }, clear=False):
+            with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
+                send_trade(signal)
+
+        self.assertEqual(captured[0]["path"], "/openApi/swap/v2/position/margin_type")
+        self.assertEqual(captured[0]["payload"]["marginType"], "CROSSED")
+        self.assertEqual(captured[1]["path"], "/openApi/swap/v2/position/leverage")
+        self.assertEqual(captured[1]["payload"]["leverage"], "125")
+
+        market_order = next(order for order in captured if order["payload"].get("type") == "MARKET")
+        self.assertEqual(market_order["payload"]["type"], "MARKET")
+
+        stop_order = next(order for order in captured if order["payload"].get("stopPrice") is not None)
+        self.assertEqual(Decimal(stop_order["payload"]["stopPrice"]), Decimal("0.468"))
 
     def test_send_trade_omits_reduce_only_in_hedge_mode(self):
         signal = {
