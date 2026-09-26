@@ -33,12 +33,15 @@ def get_env_float(name: str, default: float) -> float:
     return parsed
 
 
-def get_stop_loss_percent() -> float:
+def get_max_loss_usd() -> Decimal:
     value = os.getenv("STOP_LOSS")
-    if value is not None:
-        parsed = get_env_float("STOP_LOSS", 0.02)
-        return parsed / 100 if parsed > 1 else parsed
-    return 0.02
+    if value is None:
+        return Decimal("32")
+    try:
+        return Decimal(str(get_env_float("STOP_LOSS", 32.0)))
+    except InvalidOperation:
+        logger.warning("Invalid STOP_LOSS value %r, using default 32", value)
+        return Decimal("32")
 
 
 def get_max_leverage() -> str:
@@ -157,6 +160,13 @@ def calc_stop_loss_price(entry: Decimal, side: str, stop_loss_percent: float) ->
     return entry * (Decimal("1") + Decimal(str(stop_loss_percent)))
 
 
+def format_quantity(value: Decimal) -> str:
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
 def create_signed_payload(api_key: str, secret_key: str, payload: Dict[str, object]) -> Dict[str, str]:
     sorted_keys = sorted(payload)
     params_list = []
@@ -222,8 +232,7 @@ def send_trade(signal: Dict[str, object]) -> None:
     if not api_key or not secret_key:
         raise RuntimeError("BINGX_API_KEY and BINGX_SECRET_KEY must be set in the environment.")
 
-    stop_loss_percent = get_stop_loss_percent()
-    position_size = Decimal(str(get_env_float("BINGX_POSITION_SIZE", 1.0)))
+    max_loss_usd = get_max_loss_usd()
     symbol = build_symbol(str(signal["symbol"]), os.getenv("BINGX_QUOTE_ASSET", "USDT"))
     entry = Decimal(str(signal["entry"]))
     take1 = Decimal(str(signal["take1"]))
@@ -232,7 +241,22 @@ def send_trade(signal: Dict[str, object]) -> None:
     entry_order_side = side
     close_order_side = "SELL" if side == "BUY" else "BUY"
     position_side = "LONG" if side == "BUY" else "SHORT"
-    stop_loss_price = calc_stop_loss_price(entry, side, stop_loss_percent)
+    stop_loss_price = signal.get("stop")
+    if stop_loss_price is None:
+        raise RuntimeError("Signal must include a stop loss price when sizing by a fixed USD risk budget.")
+    stop_loss_price = Decimal(str(stop_loss_price))
+    risk_per_unit = abs(entry - stop_loss_price)
+    if risk_per_unit <= 0:
+        raise RuntimeError("Stop loss must be different from entry price when sizing by fixed USD risk.")
+    position_quantity = max_loss_usd / risk_per_unit
+    logger.debug(
+        "Position sizing: STOP_LOSS=%s USD, entry=%s, stop=%s, risk_per_unit=%s, quantity=%s",
+        max_loss_usd,
+        entry,
+        stop_loss_price,
+        risk_per_unit,
+        format_quantity(position_quantity),
+    )
     max_leverage = get_max_leverage()
 
     margin_setup = {
@@ -255,17 +279,17 @@ def send_trade(signal: Dict[str, object]) -> None:
         "side": entry_order_side,
         "positionSide": position_side,
         "type": "MARKET",
-        "quantity": format(position_size, "f"),
+        "quantity": format_quantity(position_quantity),
     }
     open_order = bingx_request("POST", "/openApi/swap/v2/trade/order", api_key, secret_key, open_payload)
 
-    half_quantity = position_size / Decimal("2")
+    half_quantity = position_quantity / Decimal("2")
     close_first = {
         "symbol": symbol,
         "side": close_order_side,
         "positionSide": position_side,
         "type": "LIMIT",
-        "quantity": format(half_quantity, "f"),
+        "quantity": format_quantity(half_quantity),
         "price": format(take1, "f"),
         "timeInForce": "GTC",
     }
@@ -276,7 +300,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "side": close_order_side,
         "positionSide": position_side,
         "type": "LIMIT",
-        "quantity": format(half_quantity, "f"),
+        "quantity": format_quantity(half_quantity),
         "price": format(take2, "f"),
         "timeInForce": "GTC",
     }
@@ -287,7 +311,7 @@ def send_trade(signal: Dict[str, object]) -> None:
         "side": close_order_side,
         "positionSide": position_side,
         "type": "STOP",
-        "quantity": format(position_size, "f"),
+        "quantity": format_quantity(position_quantity),
         "stopPrice": format(stop_loss_price, "f"),
         "timeInForce": "GTC",
     }

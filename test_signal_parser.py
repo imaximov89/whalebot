@@ -53,7 +53,7 @@ class ParseSignalMessageTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "BINGX_API_KEY": "test-key",
             "BINGX_SECRET_KEY": "test-secret",
-            "BINGX_POSITION_SIZE": "1",
+            "STOP_LOSS": "32",
             "BINGX_QUOTE_ASSET": "USDT",
         }, clear=False):
             with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
@@ -62,6 +62,34 @@ class ParseSignalMessageTests(unittest.TestCase):
         market_order = next(order for order in captured if order.get("type") == "MARKET")
         self.assertEqual(market_order["type"], "MARKET")
         self.assertNotIn("price", market_order)
+
+    def test_send_trade_sizes_by_stop_loss_usd_budget(self):
+        signal = {
+            "symbol": "COTI-USDT",
+            "entry": Decimal("0.50"),
+            "take1": Decimal("0.55"),
+            "take2": Decimal("0.60"),
+            "stop": Decimal("0.45"),
+            "side": "BUY",
+        }
+        captured = []
+
+        def fake_bingx_request(method, path, api_key, secret_key, payload=None):
+            captured.append(payload)
+            return {"code": 0, "msg": "success"}
+
+        with patch.dict(os.environ, {
+            "BINGX_API_KEY": "test-key",
+            "BINGX_SECRET_KEY": "test-secret",
+            "STOP_LOSS": "32",
+            "BINGX_QUOTE_ASSET": "USDT",
+        }, clear=False):
+            with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
+                send_trade(signal)
+
+        market_order = next(order for order in captured if order.get("type") == "MARKET")
+        self.assertEqual(market_order["quantity"], "640")
+        self.assertEqual(market_order["side"], "BUY")
 
     def test_bingx_request_rejects_non_zero_api_code_even_on_http_200(self):
         class DummyResponse:
@@ -131,10 +159,9 @@ class ParseSignalMessageTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "BINGX_API_KEY": "test-key",
             "BINGX_SECRET_KEY": "test-secret",
-            "BINGX_POSITION_SIZE": "1",
+            "STOP_LOSS": "32",
             "BINGX_QUOTE_ASSET": "USDT",
             "BINGX_MAX_LEVERAGE": "125",
-            "STOP_LOSS": "2.5",
         }, clear=False):
             with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
                 send_trade(signal)
@@ -153,7 +180,7 @@ class ParseSignalMessageTests(unittest.TestCase):
         self.assertEqual(market_order["payload"]["type"], "MARKET")
 
         stop_order = next(order for order in captured if order["payload"].get("stopPrice") is not None)
-        self.assertEqual(Decimal(stop_order["payload"]["stopPrice"]), Decimal("0.468"))
+        self.assertEqual(Decimal(stop_order["payload"]["stopPrice"]), Decimal("0.46"))
 
     def test_send_trade_omits_reduce_only_in_hedge_mode(self):
         signal = {
@@ -173,7 +200,7 @@ class ParseSignalMessageTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "BINGX_API_KEY": "test-key",
             "BINGX_SECRET_KEY": "test-secret",
-            "BINGX_POSITION_SIZE": "1",
+            "STOP_LOSS": "32",
             "BINGX_QUOTE_ASSET": "USDT",
         }, clear=False):
             with patch("telegram_bingx_signal_bot.bingx_request", side_effect=fake_bingx_request):
